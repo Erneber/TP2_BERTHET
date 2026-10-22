@@ -1,0 +1,11 @@
+# Entornos y caches
+.venv/
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Archivos locales o secretos
+.env
+.DS_Store
