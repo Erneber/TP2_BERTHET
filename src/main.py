@@ -3,10 +3,12 @@
 Ejemplos:
     python -m src.main --entrada data/viajes.csv --desde 2026-09-15 --hasta 2026-09-16
     python -m src.main --entrada data/viajes.json --desde "2026-09-15 07:00:00" --hasta "2026-09-15 10:00:00"
+    python -m src.main --entrada data/viajes.csv --desde 2026-09-15 --hasta 2026-09-16 --graficar
 """
 
 import argparse
 import sys
+from pathlib import Path
 
 from src.dominio import ErrorDatos, Periodo
 from src.fuentes import crear_fuente
@@ -23,6 +25,8 @@ def construir_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hasta", required=True,
                         help="fin del período, excluido (AAAA-MM-DD o AAAA-MM-DD HH:MM:SS)")
     parser.add_argument("--salida", default="outputs", help="carpeta de salida (por defecto: outputs)")
+    parser.add_argument("--graficar", action="store_true",
+                        help="guarda el balance neto por estación en <salida>/balance_estaciones.png")
     return parser
 
 
@@ -34,6 +38,12 @@ def main(argv=None) -> int:
         resultado = AplicacionEcobici(crear_fuente(argumentos.entrada)).ejecutar(periodo)
         ruta_balance = guardar_balance(resultado.balance, periodo, argumentos.salida)
         ruta_rechazos = guardar_rechazos(resultado.rechazados, argumentos.salida)
+        ruta_grafico = None
+        if argumentos.graficar and not resultado.balance.empty:
+            # Se importa acá para que matplotlib solo se necesite cuando se pide el gráfico.
+            from src.visualizacion import graficar_balance
+
+            ruta_grafico = graficar_balance(resultado, Path(argumentos.salida) / "balance_estaciones.png")
     except (ErrorDatos, FileNotFoundError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
@@ -50,6 +60,8 @@ def main(argv=None) -> int:
         print(resultado.balance.to_string(index=False))
     print(f"Reporte guardado en: {ruta_balance}")
     print(f"Rechazos guardados en: {ruta_rechazos}")
+    if ruta_grafico:
+        print(f"Gráfico guardado en: {ruta_grafico}")
     return 0
 
 
