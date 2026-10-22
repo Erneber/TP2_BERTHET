@@ -43,7 +43,10 @@ def validar_esquema(tabla: pd.DataFrame) -> None:
 
 
 def _texto_o_none(valor):
-    """Normaliza un valor a texto sin espacios; faltantes (None, NaN o vacío) pasan a None."""
+    """Normaliza un valor a texto sin espacios; faltantes (None, NaN o vacío) pasan a None.
+
+    Es una función pura: así el CSV (campo vacío) y el JSON (null) se tratan igual.
+    """
     if valor is None or (not isinstance(valor, str) and pd.isna(valor)):
         return None
     return str(valor).strip() or None
@@ -52,9 +55,14 @@ def _texto_o_none(valor):
 def validar_recorridos(tabla: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Separa los viajes válidos de los rechazados.
 
-    Devuelve `(validos, rechazados)`. Los rechazados conservan la fila original y
-    una columna `motivo` con todas las reglas incumplidas. La tabla de entrada no
-    se modifica. En `validos`, `inicio` y `fin` ya son fechas (datetime64).
+    Entradas: tabla con las columnas de COLUMNAS_VIAJE; todos los valores como texto.
+    Salida: `(validos, rechazados)`. Los rechazados conservan la fila original y una
+    columna `motivo` con todas las reglas incumplidas. En `validos`, `inicio` y `fin`
+    ya son fechas (datetime64) y los códigos de estación conservan el cero inicial.
+    Efectos: ninguno. Trabaja sobre una copia: la tabla recibida no se modifica.
+    Errores: ErrorDatos si la tabla está vacía, faltan columnas o ningún viaje es válido.
+    Reglas: forma del identificador y de las estaciones (regex), fechas que existan
+    en el calendario, fin posterior al inicio, estaciones presentes y sin duplicados.
     """
     validar_esquema(tabla)
     trabajo = tabla.loc[:, list(COLUMNAS_VIAJE)].copy()
@@ -110,16 +118,27 @@ def validar_recorridos(tabla: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 def seleccionar_periodo(viajes: pd.DataFrame, periodo: Periodo) -> pd.DataFrame:
     """Devuelve los viajes cuyo **inicio** cae en el período [desde, hasta).
 
+    Entradas: viajes ya validados (con `inicio` como fecha) y un Periodo.
+    Salida: nueva tabla con los viajes seleccionados; vacía si no hay ninguno.
+    Efectos: ninguno (no modifica `viajes`).
+    Errores: ninguno propio; un Periodo inválido ya fue rechazado al construirse.
     Decisión de la primera versión: el viaje se asigna al período por su hora de
     inicio. Si termina después del fin del período, igualmente se cuentan ambos
-    extremos (salida y llegada). Un período sin viajes devuelve una tabla vacía.
+    extremos (salida y llegada).
     """
     dentro = (viajes["inicio"] >= periodo.desde) & (viajes["inicio"] < periodo.hasta)
     return viajes.loc[dentro].reset_index(drop=True)
 
 
 def registrar_movimientos(viajes: pd.DataFrame) -> dict[str, BalanceEstacion]:
-    """Acumula, por estación, una salida en el origen y una llegada en el destino de cada viaje."""
+    """Acumula, por estación, una salida en el origen y una llegada en el destino de cada viaje.
+
+    Entradas: viajes ya validados y seleccionados.
+    Salida: diccionario código de estación -> BalanceEstacion (solo estaciones con movimientos).
+    Efectos: ninguno sobre los viajes; los objetos BalanceEstacion se crean dentro de la función.
+    Errores: ninguno si los viajes pasaron por `validar_recorridos` (los códigos ya son válidos).
+    Un viaje con origen igual a destino suma una salida y una llegada en la misma estación.
+    """
     balances: dict[str, BalanceEstacion] = {}
 
     def balance_de(codigo: str) -> BalanceEstacion:
@@ -184,7 +203,13 @@ def nombre_balance(periodo: Periodo) -> str:
 
 
 def guardar_balance(balance: pd.DataFrame, periodo: Periodo, carpeta) -> Path:
-    """Guarda el reporte en CSV dentro de `carpeta` (se crea si no existe) y devuelve su ruta."""
+    """Guarda el reporte en CSV y devuelve su ruta.
+
+    Entradas: reporte, período (para nombrar el archivo) y carpeta de destino.
+    Salida: ruta del archivo creado.
+    Efectos: crea la carpeta si no existe y escribe (o reemplaza) el archivo del período.
+    Errores: OSError si no se puede escribir (por ejemplo, permisos).
+    """
     carpeta = Path(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
     ruta = carpeta / nombre_balance(periodo)
@@ -193,7 +218,13 @@ def guardar_balance(balance: pd.DataFrame, periodo: Periodo, carpeta) -> Path:
 
 
 def guardar_rechazos(rechazados: pd.DataFrame, carpeta) -> Path:
-    """Guarda los registros rechazados con su motivo en `rechazos.csv` (aunque no haya ninguno)."""
+    """Guarda los registros rechazados con su motivo en `rechazos.csv` (aunque no haya ninguno).
+
+    Entradas: tabla de rechazados y carpeta de destino.
+    Salida: ruta del archivo creado.
+    Efectos: crea la carpeta si no existe y escribe el archivo.
+    Errores: OSError si no se puede escribir.
+    """
     carpeta = Path(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
     ruta = carpeta / "rechazos.csv"
@@ -227,6 +258,14 @@ class AplicacionEcobici:
         self._fuente = fuente
 
     def ejecutar(self, periodo: Periodo) -> ResultadoReporte:
+        """Ejecuta el flujo completo para un período.
+
+        Entradas: un Periodo (la fuente ya está inyectada).
+        Salida: ResultadoReporte con viajes, balance, rechazados y auditoría.
+        Efectos: solo lee el archivo de la fuente; no escribe nada.
+        Errores: FileNotFoundError o ErrorDatos si la entrada no es utilizable, o si
+        el balance no cumple las propiedades de `verificar_balance`.
+        """
         entrada = self._fuente.cargar()
         validos, rechazados = validar_recorridos(entrada)
         viajes = seleccionar_periodo(validos, periodo)
