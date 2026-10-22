@@ -127,3 +127,45 @@ def registrar_movimientos(viajes: pd.DataFrame) -> dict[str, BalanceEstacion]:
         balance_de(origen).registrar_salida()
         balance_de(destino).registrar_llegada()
     return balances
+
+
+# ---------------------------------------------------------------------------
+# Balance y verificación
+# ---------------------------------------------------------------------------
+COLUMNAS_BALANCE = ("estacion", "salidas", "llegadas", "balance_neto")
+
+
+def generar_balance(balances: dict[str, BalanceEstacion]) -> pd.DataFrame:
+    """Arma el reporte por estación: salidas, llegadas y balance neto (llegadas - salidas).
+
+    Entradas: diccionario código de estación -> BalanceEstacion.
+    Salida: DataFrame ordenado por código de estación; vacío (pero con sus
+    columnas) si no hubo movimientos.
+    Efectos: ninguno (función pura: no modifica los balances recibidos).
+    """
+    filas = [balances[codigo].a_diccionario() for codigo in sorted(balances)]
+    return pd.DataFrame(filas, columns=list(COLUMNAS_BALANCE))
+
+
+def verificar_balance(balance: pd.DataFrame, viajes: pd.DataFrame) -> None:
+    """Comprueba propiedades que cualquier balance correcto debe cumplir.
+
+    No alcanza con que el programa termine sin errores. Cada viaje aporta una
+    salida y una llegada, por lo tanto:
+    1. la suma de salidas es igual a la cantidad de viajes seleccionados;
+    2. la suma de llegadas es igual a la cantidad de viajes seleccionados;
+    3. la suma de los balances netos de todas las estaciones es cero
+       (lo que sale de un lugar llega a otro);
+    4. el balance de cada estación es llegadas - salidas.
+
+    Errores: ErrorDatos si alguna propiedad no se cumple.
+    """
+    cantidad = len(viajes)
+    if int(balance["salidas"].sum()) != cantidad:
+        raise ErrorDatos("Balance inconsistente: las salidas no coinciden con los viajes.")
+    if int(balance["llegadas"].sum()) != cantidad:
+        raise ErrorDatos("Balance inconsistente: las llegadas no coinciden con los viajes.")
+    if int(balance["balance_neto"].sum()) != 0:
+        raise ErrorDatos("Balance inconsistente: la suma de los balances netos no es cero.")
+    if (balance["balance_neto"] != balance["llegadas"] - balance["salidas"]).any():
+        raise ErrorDatos("Balance inconsistente: balance_neto debe ser llegadas - salidas.")
