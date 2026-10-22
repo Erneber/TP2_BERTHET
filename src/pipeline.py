@@ -11,7 +11,9 @@ datos y devuelven resultados, sin leer ni escribir archivos. Los efectos
 import pandas as pd
 
 from src.dominio import (
+    BalanceEstacion,
     ErrorDatos,
+    Periodo,
     es_estacion_valida,
     es_viaje_valido,
     parsear_fecha,
@@ -96,3 +98,32 @@ def validar_recorridos(tabla: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
     if validos.empty:
         raise ErrorDatos("Ningún viaje es válido: revise el archivo de entrada.")
     return validos, rechazados
+
+
+# ---------------------------------------------------------------------------
+# Selección de período y registro de movimientos
+# ---------------------------------------------------------------------------
+def seleccionar_periodo(viajes: pd.DataFrame, periodo: Periodo) -> pd.DataFrame:
+    """Devuelve los viajes cuyo **inicio** cae en el período [desde, hasta).
+
+    Decisión de la primera versión: el viaje se asigna al período por su hora de
+    inicio. Si termina después del fin del período, igualmente se cuentan ambos
+    extremos (salida y llegada). Un período sin viajes devuelve una tabla vacía.
+    """
+    dentro = (viajes["inicio"] >= periodo.desde) & (viajes["inicio"] < periodo.hasta)
+    return viajes.loc[dentro].reset_index(drop=True)
+
+
+def registrar_movimientos(viajes: pd.DataFrame) -> dict[str, BalanceEstacion]:
+    """Acumula, por estación, una salida en el origen y una llegada en el destino de cada viaje."""
+    balances: dict[str, BalanceEstacion] = {}
+
+    def balance_de(codigo: str) -> BalanceEstacion:
+        if codigo not in balances:
+            balances[codigo] = BalanceEstacion(codigo)
+        return balances[codigo]
+
+    for origen, destino in zip(viajes["estacion_origen"], viajes["estacion_destino"]):
+        balance_de(origen).registrar_salida()
+        balance_de(destino).registrar_llegada()
+    return balances
