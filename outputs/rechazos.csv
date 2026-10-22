@@ -1,0 +1,14 @@
+viaje_id,inicio,fin,estacion_origen,estacion_destino,motivo
+VX0001,2026-09-14 00:16:24,2026-09-14 00:52:26,001,010,identificador de viaje inválido
+V00010,2026-09-14 07:26:45,2026-09-14 07:59:35,006,003,identificador de viaje duplicado
+V00401,2026/09/15 08:00:00,2026/09/15 08:30:00,001,010,inicio faltante o inválido; fin faltante o inválido
+V00402,2026-02-30 08:00:00,2026-03-01 09:00:00,001,010,inicio faltante o inválido
+V00403,2026-09-15 08:00:00,2026-09-31 09:00:00,001,010,fin faltante o inválido
+V00404,2026-09-15 08:00:00,2026-09-15 07:30:00,001,010,fin no posterior al inicio
+V00405,2026-09-15 08:00:00,2026-09-15 08:00:00,001,010,fin no posterior al inicio
+V00406,2026-09-14 00:16:24,2026-09-14 00:52:26,,010,estación de origen faltante
+V00407,2026-09-14 00:16:24,2026-09-14 00:52:26,001,,estación de destino faltante
+V00408,2026-09-14 00:16:24,2026-09-14 00:52:26,12,010,estación de origen con formato inválido
+V00409,2026-09-14 00:16:24,2026-09-14 00:52:26,001,A01,estación de destino con formato inválido
+V00410,2026-09-14 00:16:24,,001,010,fin faltante o inválido
+V00411,,2026-09-14 00:52:26,001,010,inicio faltante o inválido
