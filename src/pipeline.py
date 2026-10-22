@@ -8,6 +8,9 @@ datos y devuelven resultados, sin leer ni escribir archivos. Los efectos
 (guardar archivos, mostrar por pantalla) se concentran en los bordes del flujo.
 """
 
+from dataclasses import dataclass
+from pathlib import Path
+
 import pandas as pd
 
 from src.dominio import (
@@ -18,6 +21,7 @@ from src.dominio import (
     es_viaje_valido,
     parsear_fecha,
 )
+from src.fuentes import FuenteDatos
 
 COLUMNAS_VIAJE = ("viaje_id", "inicio", "fin", "estacion_origen", "estacion_destino")
 
@@ -169,3 +173,70 @@ def verificar_balance(balance: pd.DataFrame, viajes: pd.DataFrame) -> None:
         raise ErrorDatos("Balance inconsistente: la suma de los balances netos no es cero.")
     if (balance["balance_neto"] != balance["llegadas"] - balance["salidas"]).any():
         raise ErrorDatos("Balance inconsistente: balance_neto debe ser llegadas - salidas.")
+
+
+# ---------------------------------------------------------------------------
+# Exportación (efectos en el borde del flujo)
+# ---------------------------------------------------------------------------
+def nombre_balance(periodo: Periodo) -> str:
+    """Nombre del archivo del reporte; incluye el período para no pisar reportes de otros."""
+    return f"balance_{periodo.desde:%Y%m%dT%H%M%S}_{periodo.hasta:%Y%m%dT%H%M%S}.csv"
+
+
+def guardar_balance(balance: pd.DataFrame, periodo: Periodo, carpeta) -> Path:
+    """Guarda el reporte en CSV dentro de `carpeta` (se crea si no existe) y devuelve su ruta."""
+    carpeta = Path(carpeta)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / nombre_balance(periodo)
+    balance.to_csv(ruta, index=False, encoding="utf-8")
+    return ruta
+
+
+def guardar_rechazos(rechazados: pd.DataFrame, carpeta) -> Path:
+    """Guarda los registros rechazados con su motivo en `rechazos.csv` (aunque no haya ninguno)."""
+    carpeta = Path(carpeta)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / "rechazos.csv"
+    rechazados.to_csv(ruta, index=False, encoding="utf-8")
+    return ruta
+
+
+# ---------------------------------------------------------------------------
+# Aplicación (composición con inyección de dependencia)
+# ---------------------------------------------------------------------------
+@dataclass
+class ResultadoReporte:
+    """Todo lo que produce una ejecución, incluida la auditoría de la limpieza."""
+
+    periodo: Periodo
+    viajes_periodo: pd.DataFrame
+    balance: pd.DataFrame
+    rechazados: pd.DataFrame
+    auditoria: dict
+
+
+class AplicacionEcobici:
+    """Coordina leer -> validar -> seleccionar período -> registrar -> balance -> verificar.
+
+    *Tiene una* fuente de datos (composición) y la recibe por el constructor
+    (inyección de dependencia): funciona igual con FuenteCSV o FuenteJSON sin
+    duplicar la lógica. No escribe archivos: eso lo decide quien la usa.
+    """
+
+    def __init__(self, fuente: FuenteDatos):
+        self._fuente = fuente
+
+    def ejecutar(self, periodo: Periodo) -> ResultadoReporte:
+        entrada = self._fuente.cargar()
+        validos, rechazados = validar_recorridos(entrada)
+        viajes = seleccionar_periodo(validos, periodo)
+        balance = generar_balance(registrar_movimientos(viajes))
+        verificar_balance(balance, viajes)
+        auditoria = {
+            "entrada": len(entrada),
+            "validos": len(validos),
+            "rechazados": len(rechazados),
+            "en_periodo": len(viajes),
+            "fuera_de_periodo": len(validos) - len(viajes),
+        }
+        return ResultadoReporte(periodo, viajes, balance, rechazados, auditoria)
