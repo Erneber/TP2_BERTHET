@@ -2,12 +2,9 @@
 
 from pathlib import Path
 
-import matplotlib
+import matplotlib.pyplot as plt
 
-matplotlib.use("Agg")  # genera archivos sin abrir ventanas (sirve en cualquier equipo)
-import matplotlib.pyplot as plt  # noqa: E402
-
-from src.pipeline import ResultadoReporte  # noqa: E402
+from src.pipeline import ResultadoReporte
 
 
 def graficar_balance(resultado: ResultadoReporte, ruta) -> Path:

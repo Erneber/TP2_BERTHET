@@ -35,8 +35,9 @@ def es_estacion_valida(valor) -> bool:
     return _coincide(PATRON_ESTACION, valor)
 
 
-def parsear_fecha(valor) -> datetime | None:
-    """Convierte 'AAAA-MM-DD HH:MM:SS' en datetime, o devuelve None si no es válida.
+def parsear_fecha(valor) -> datetime:
+    """Convierte 'AAAA-MM-DD HH:MM:SS' en datetime, o devuelve None si no es válida
+    (por eso el resultado puede ser un datetime o None).
 
     Hace dos controles distintos: la regex verifica la *forma* y `strptime`
     verifica el *calendario*. Por ejemplo, '2026-02-30 08:00:00' cumple la forma

@@ -2,15 +2,13 @@
 
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 from pathlib import Path
 
 import pandas as pd
 
 from src.dominio import ErrorDatos, Periodo
 from src.fuentes import FuenteCSV, FuenteJSON
-from src.main import main
+from src.main import ejecutar_reporte, pedir_datos
 from src.pipeline import (
     AplicacionEcobici,
     generar_balance,
@@ -241,45 +239,53 @@ class PruebasExportacion(unittest.TestCase):
         self.assertNotEqual(a, b)
 
 
-class PruebasLineaDeComandos(unittest.TestCase):
-    def ejecutar_main(self, *argumentos):
-        salida, error = StringIO(), StringIO()
-        with redirect_stdout(salida), redirect_stderr(error):
-            codigo = main(list(argumentos))
-        return codigo, salida.getvalue(), error.getvalue()
+class PruebasMenuDeConsola(unittest.TestCase):
+    def test_pedir_datos_usa_los_valores_por_defecto_con_enter(self):
+        respuestas = iter(["", "2026-09-15", "2026-09-16", "", ""])
+        datos = pedir_datos(leer=lambda texto: next(respuestas))
+        self.assertEqual(datos, {"entrada": "data/viajes.csv", "desde": "2026-09-15",
+                                 "hasta": "2026-09-16", "salida": "outputs", "graficar": False})
+
+    def test_pedir_datos_con_respuestas_propias(self):
+        respuestas = iter(["data/viajes.json", " 2026-09-15 07:00:00 ", "2026-09-15 10:00:00", "resultados", "S"])
+        datos = pedir_datos(leer=lambda texto: next(respuestas))
+        self.assertEqual(datos["entrada"], "data/viajes.json")
+        self.assertEqual(datos["desde"], "2026-09-15 07:00:00")  # se recortan los espacios
+        self.assertTrue(datos["graficar"])
 
     def test_ejecucion_correcta_genera_archivos(self):
         with tempfile.TemporaryDirectory() as carpeta:
-            codigo, salida, _ = self.ejecutar_main(
-                "--entrada", str(DATOS / "viajes.csv"), "--desde", "2026-09-15",
-                "--hasta", "2026-09-16", "--salida", carpeta)
-            self.assertEqual(codigo, 0)
-            self.assertIn("rechazados: 13", salida)
-            self.assertIn("viajes en el período: 57", salida)
-            self.assertTrue((Path(carpeta) / "rechazos.csv").is_file())
-            self.assertEqual(len(list(Path(carpeta).glob("balance_*.csv"))), 1)
+            resultado, rutas = ejecutar_reporte(str(DATOS / "viajes.csv"), "2026-09-15", "2026-09-16", carpeta)
+            self.assertEqual(resultado.auditoria["rechazados"], 13)
+            self.assertEqual(resultado.auditoria["en_periodo"], 57)
+            self.assertTrue(rutas["balance"].is_file())
+            self.assertTrue(rutas["rechazos"].is_file())
+            self.assertNotIn("grafico", rutas)
 
-    def test_periodo_vacio_informa_en_lugar_de_fallar(self):
+    def test_con_grafico(self):
         with tempfile.TemporaryDirectory() as carpeta:
-            codigo, salida, _ = self.ejecutar_main(
-                "--entrada", str(DATOS / "viajes.json"), "--desde", "2030-01-01",
-                "--hasta", "2030-01-02", "--salida", carpeta)
-            self.assertEqual(codigo, 0)
-            self.assertIn("reporte está vacío", salida)
+            _, rutas = ejecutar_reporte(str(DATOS / "viajes.json"), "2026-09-15", "2026-09-16", carpeta, graficar=True)
+            self.assertTrue(rutas["grafico"].is_file())
 
-    def test_errores_esperados_devuelven_codigo_1_y_mensaje(self):
+    def test_periodo_vacio_no_falla(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            resultado, rutas = ejecutar_reporte(str(DATOS / "viajes.csv"), "2030-01-01", "2030-01-02", carpeta, graficar=True)
+            self.assertTrue(resultado.balance.empty)
+            self.assertNotIn("grafico", rutas)  # no se grafica un reporte vacío
+
+    def test_errores_esperados(self):
         with tempfile.TemporaryDirectory() as carpeta:
             casos = [
-                (["--entrada", "no_existe.csv", "--desde", "2026-09-15", "--hasta", "2026-09-16"], "No existe el archivo"),
-                (["--entrada", str(DATOS / "viajes.csv"), "--desde", "2026-09-16", "--hasta", "2026-09-15"], "anterior"),
-                (["--entrada", str(DATOS / "viajes.csv"), "--desde", "2026-02-30", "--hasta", "2026-03-02"], "inválido"),
-                (["--entrada", "datos.xlsx", "--desde", "2026-09-15", "--hasta", "2026-09-16"], "Formato no soportado"),
+                (("no_existe.csv", "2026-09-15", "2026-09-16"), FileNotFoundError, "No existe el archivo"),
+                ((str(DATOS / "viajes.csv"), "2026-09-16", "2026-09-15"), ErrorDatos, "anterior"),
+                ((str(DATOS / "viajes.csv"), "2026-02-30", "2026-03-02"), ErrorDatos, "inválido"),
+                ((str(DATOS / "viajes.csv"), "", "2026-03-02"), ErrorDatos, "Hay que indicar"),
+                (("datos.xlsx", "2026-09-15", "2026-09-16"), ErrorDatos, "Formato no soportado"),
             ]
-            for argumentos, texto in casos:
+            for argumentos, error, texto in casos:
                 with self.subTest(argumentos=argumentos):
-                    codigo, _, error = self.ejecutar_main(*argumentos, "--salida", carpeta)
-                    self.assertEqual(codigo, 1)
-                    self.assertIn(texto, error)
+                    with self.assertRaisesRegex(error, texto):
+                        ejecutar_reporte(*argumentos, salida=carpeta)
 
 
 if __name__ == "__main__":

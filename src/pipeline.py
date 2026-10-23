@@ -52,7 +52,7 @@ def _texto_o_none(valor):
     return str(valor).strip() or None
 
 
-def validar_recorridos(tabla: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def validar_recorridos(tabla: pd.DataFrame) -> tuple:
     """Separa los viajes válidos de los rechazados.
 
     Entradas: tabla con las columnas de COLUMNAS_VIAJE; todos los valores como texto.
@@ -130,7 +130,7 @@ def seleccionar_periodo(viajes: pd.DataFrame, periodo: Periodo) -> pd.DataFrame:
     return viajes.loc[dentro].reset_index(drop=True)
 
 
-def registrar_movimientos(viajes: pd.DataFrame) -> dict[str, BalanceEstacion]:
+def registrar_movimientos(viajes: pd.DataFrame) -> dict:
     """Acumula, por estación, una salida en el origen y una llegada en el destino de cada viaje.
 
     Entradas: viajes ya validados y seleccionados.
@@ -139,7 +139,7 @@ def registrar_movimientos(viajes: pd.DataFrame) -> dict[str, BalanceEstacion]:
     Errores: ninguno si los viajes pasaron por `validar_recorridos` (los códigos ya son válidos).
     Un viaje con origen igual a destino suma una salida y una llegada en la misma estación.
     """
-    balances: dict[str, BalanceEstacion] = {}
+    balances = {}
 
     def balance_de(codigo: str) -> BalanceEstacion:
         if codigo not in balances:
@@ -158,7 +158,7 @@ def registrar_movimientos(viajes: pd.DataFrame) -> dict[str, BalanceEstacion]:
 COLUMNAS_BALANCE = ("estacion", "salidas", "llegadas", "balance_neto")
 
 
-def generar_balance(balances: dict[str, BalanceEstacion]) -> pd.DataFrame:
+def generar_balance(balances: dict) -> pd.DataFrame:
     """Arma el reporte por estación: salidas, llegadas y balance neto (llegadas - salidas).
 
     Entradas: diccionario código de estación -> BalanceEstacion.

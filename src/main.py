@@ -1,13 +1,12 @@
-"""Punto de entrada de la aplicación (se ejecuta desde la raíz del proyecto).
+"""Punto de entrada de la aplicación: menú de consola.
 
-Ejemplos:
-    python -m src.main --entrada data/viajes.csv --desde 2026-09-15 --hasta 2026-09-16
-    python -m src.main --entrada data/viajes.json --desde "2026-09-15 07:00:00" --hasta "2026-09-15 10:00:00"
-    python -m src.main --entrada data/viajes.csv --desde 2026-09-15 --hasta 2026-09-16 --graficar
+Se ejecuta desde la raíz del proyecto:
+    python -m src.main
+
+El programa pregunta el archivo de viajes, el período y las opciones de salida.
+
 """
 
-import argparse
-import sys
 from pathlib import Path
 
 from src.dominio import ErrorDatos, Periodo
@@ -15,41 +14,59 @@ from src.fuentes import crear_fuente
 from src.pipeline import AplicacionEcobici, guardar_balance, guardar_rechazos
 
 
-def construir_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Reporte operativo de movimientos de Ecobici (TP2 - POD)."
-    )
-    parser.add_argument("--entrada", required=True, help="archivo de viajes (.csv o .json)")
-    parser.add_argument("--desde", required=True,
-                        help="inicio del período, incluido (AAAA-MM-DD o AAAA-MM-DD HH:MM:SS)")
-    parser.add_argument("--hasta", required=True,
-                        help="fin del período, excluido (AAAA-MM-DD o AAAA-MM-DD HH:MM:SS)")
-    parser.add_argument("--salida", default="outputs", help="carpeta de salida (por defecto: outputs)")
-    parser.add_argument("--graficar", action="store_true",
-                        help="guarda el balance neto por estación en <salida>/balance_estaciones.png")
-    return parser
+def pedir_datos(leer=input) -> dict:
+    """Pregunta los datos de la consulta y los devuelve en un diccionario.
+
+    Entradas: `leer`, la función que obtiene cada respuesta (por defecto `input`).
+    Recibirla como parámetro permite probar el menú sin escribir por teclado.
+    Salida: diccionario con entrada, desde, hasta, salida y graficar.
+    Efectos: lee de la consola (o de `leer`).
+    """
+    def preguntar(texto, por_defecto=None):
+        sufijo = f" [{por_defecto}]" if por_defecto else ""
+        respuesta = leer(f"{texto}{sufijo}: ").strip()
+        return respuesta or por_defecto
+
+    return {
+        "entrada": preguntar("Archivo de viajes (.csv o .json)", "data/viajes.csv"),
+        "desde": preguntar("Desde, incluido (AAAA-MM-DD o AAAA-MM-DD HH:MM:SS)"),
+        "hasta": preguntar("Hasta, excluido (AAAA-MM-DD o AAAA-MM-DD HH:MM:SS)"),
+        "salida": preguntar("Carpeta de salida", "outputs"),
+        "graficar": preguntar("¿Generar el gráfico? (s/n)", "n").lower() == "s",
+    }
 
 
-def main(argv=None) -> int:
-    """Devuelve 0 si todo salió bien y 1 si hubo un error esperado (con mensaje claro)."""
-    argumentos = construir_parser().parse_args(argv)
-    try:
-        periodo = Periodo.desde_texto(argumentos.desde, argumentos.hasta)
-        resultado = AplicacionEcobici(crear_fuente(argumentos.entrada)).ejecutar(periodo)
-        ruta_balance = guardar_balance(resultado.balance, periodo, argumentos.salida)
-        ruta_rechazos = guardar_rechazos(resultado.rechazados, argumentos.salida)
-        ruta_grafico = None
-        if argumentos.graficar and not resultado.balance.empty:
-            # Se importa acá para que matplotlib solo se necesite cuando se pide el gráfico.
-            from src.visualizacion import graficar_balance
+def ejecutar_reporte(entrada, desde, hasta, salida="outputs", graficar=False):
+    """Ejecuta el flujo completo y guarda los resultados.
 
-            ruta_grafico = graficar_balance(resultado, Path(argumentos.salida) / "balance_estaciones.png")
-    except (ErrorDatos, FileNotFoundError) as error:
-        print(f"Error: {error}", file=sys.stderr)
-        return 1
+    Entradas: ruta del archivo, límites del período (texto), carpeta de salida y
+    si se quiere el gráfico.
+    Salida: `(resultado, rutas)`; `rutas` es un diccionario con los archivos creados.
+    Efectos: crea la carpeta de salida y escribe el reporte, los rechazos y,
+    opcionalmente, el gráfico.
+    Errores: ErrorDatos o FileNotFoundError si la entrada o el período no son válidos.
+    """
+    if not desde or not hasta:
+        raise ErrorDatos("Hay que indicar el inicio y el fin del período.")
+    periodo = Periodo.desde_texto(desde, hasta)
+    resultado = AplicacionEcobici(crear_fuente(entrada)).ejecutar(periodo)
 
+    rutas = {
+        "balance": guardar_balance(resultado.balance, periodo, salida),
+        "rechazos": guardar_rechazos(resultado.rechazados, salida),
+    }
+    if graficar and not resultado.balance.empty:
+        # Se importa acá para que matplotlib solo se necesite cuando se pide el gráfico.
+        from src.visualizacion import graficar_balance
+
+        rutas["grafico"] = graficar_balance(resultado, Path(salida) / "balance_estaciones.png")
+    return resultado, rutas
+
+
+def mostrar_resultado(resultado, rutas) -> None:
+    """Imprime la auditoría y el reporte (efecto: escribe en la consola)."""
     a = resultado.auditoria
-    print(f"Período: {periodo.etiqueta()}")
+    print(f"Período: {resultado.periodo.etiqueta()}")
     print(
         f"Entrada: {a['entrada']} registros | válidos: {a['validos']} | rechazados: {a['rechazados']} | "
         f"viajes en el período: {a['en_periodo']}"
@@ -58,12 +75,19 @@ def main(argv=None) -> int:
         print("No hay viajes en el período indicado: el reporte está vacío.")
     else:
         print(resultado.balance.to_string(index=False))
-    print(f"Reporte guardado en: {ruta_balance}")
-    print(f"Rechazos guardados en: {ruta_rechazos}")
-    if ruta_grafico:
-        print(f"Gráfico guardado en: {ruta_grafico}")
-    return 0
+    for nombre, ruta in rutas.items():
+        print(f"Guardado ({nombre}): {ruta}")
+
+
+def main() -> None:
+    """Menú de consola: pregunta, ejecuta y muestra; los errores esperados se informan sin traceback."""
+    try:
+        resultado, rutas = ejecutar_reporte(**pedir_datos())
+    except (ErrorDatos, FileNotFoundError) as error:
+        print(f"Error: {error}")
+        return
+    mostrar_resultado(resultado, rutas)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
